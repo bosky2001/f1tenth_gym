@@ -1,6 +1,11 @@
 image: example_map.png
+# map paths
+map_path: '../example_map'
+map_ext: '.png'
 resolution: 0.062500
 origin: [-78.21853769831466,-44.37590462453829, 0.000000]
 negate: 0
 occupied_thresh: 0.45
 free_thresh: 0.196
+sample_num: 100000
+save_filename: 'example_map_360_100k.npz'
