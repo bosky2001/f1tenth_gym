@@ -247,10 +247,12 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Model architecture parameters - MUST match training!
-    n_input = 1080  # Full LiDAR (NOT downsampled!)
-    n_hidden = 256  # Hidden layer size used during training
-    use_pos_encoding = False  # Positional encoding was NOT used
-    dropout = 0.2  # Dropout 0.2 was used
+    # NOTE: You need to RETRAIN the model first with the new architecture!
+    # The saved model doesn't have positional encoding
+    n_input = 360  # Number of LiDAR points after downsampling
+    n_hidden = 1080  # New larger hidden layer
+    use_pos_encoding = True  # NEW: Positional encoding enabled
+    dropout = 0.0  # NEW: No dropout
 
     # Compute residuals and get predictions
     R, y_pred, y_true = compute_residuals(
