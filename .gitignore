@@ -13,6 +13,6 @@ flycheck_*
 # Large data files
 *.npz
 *.pth
-*.png
+# *.png
 *.jpg
 *.jpeg

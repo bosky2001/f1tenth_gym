@@ -45,6 +45,9 @@ def visualize_data_on_map(data_file, config_file, max_points=None):
     positions = data_record[:, :3]
     x_positions = positions[:, 0]
     y_positions = positions[:, 1]
+
+    # y_positions = positions[:, 0]
+    # x_positions = positions[:, 1]
     theta_positions = positions[:, 2]
 
     print(f"\nPosition statistics:")
@@ -82,13 +85,12 @@ def visualize_data_on_map(data_file, config_file, max_points=None):
     # Create visualization
     fig, axes = plt.subplots(1, 2, figsize=(18, 8))
 
-    # Left plot: All points on map
-    ax = axes[0]
-    ax.imshow(map_img, cmap='gray', origin='lower',
-              extent=[origin[0],
-                     origin[0] + map_img.shape[1] * resolution,
-                     origin[1],
-                     origin[1] + map_img.shape[0] * resolution])
+    # Helper function to convert world coords to pixel coords (same as frenet_debug)
+    img_height = map_img.shape[0]
+    def world_to_pixel(x, y):
+        px = (x - origin[0]) / resolution
+        py = img_height - (y - origin[1]) / resolution
+        return px, py
 
     # Subsample points if too many
     if max_points and len(x_positions) > max_points:
@@ -102,42 +104,43 @@ def visualize_data_on_map(data_file, config_file, max_points=None):
         y_plot = y_positions
         theta_plot = theta_positions
 
-    # Plot points
-    scatter = ax.scatter(x_plot, y_plot, c=theta_plot, s=1, alpha=0.5,
+    # Convert to pixel coordinates
+    x_px, y_px = world_to_pixel(x_plot, y_plot)
+
+    # Left plot: All points on map
+    ax = axes[0]
+    ax.imshow(map_img, cmap='gray')  # Default origin='upper'
+
+    # Plot points in pixel coordinates
+    scatter = ax.scatter(x_px, y_px, c=theta_plot, s=1, alpha=0.5,
                         cmap='hsv', vmin=0, vmax=2*np.pi)
 
-    ax.set_xlabel('X (m)', fontsize=12)
-    ax.set_ylabel('Y (m)', fontsize=12)
+    ax.set_xlabel('Pixel X', fontsize=12)
+    ax.set_ylabel('Pixel Y', fontsize=12)
     ax.set_title(f'Data Points on Map ({len(x_positions)} total samples)',
                 fontsize=14, fontweight='bold')
-    ax.set_aspect('equal')
 
     # Add colorbar for orientation
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label('Orientation (rad)', fontsize=10)
 
-    # Right plot: Heatmap of point density
+    # Right plot: Hexbin density plot (avoids histogram orientation issues)
     ax = axes[1]
-    ax.imshow(map_img, cmap='gray', origin='lower', alpha=0.3,
-              extent=[origin[0],
-                     origin[0] + map_img.shape[1] * resolution,
-                     origin[1],
-                     origin[1] + map_img.shape[0] * resolution])
+    ax.imshow(map_img, cmap='gray', alpha=0.3)  # Default origin='upper'
 
-    # Create 2D histogram for density
-    hist, xedges, yedges = np.histogram2d(x_positions, y_positions, bins=100)
+    # Convert all positions to pixel coords
+    all_x_px, all_y_px = world_to_pixel(x_positions, y_positions)
 
-    # Plot heatmap
-    extent_hist = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
-    im = ax.imshow(hist.T, origin='lower', extent=extent_hist,
-                   cmap='hot', alpha=0.6, interpolation='gaussian')
+    # Use hexbin for density visualization
+    hb = ax.hexbin(all_x_px, all_y_px, gridsize=50, cmap='hot', alpha=0.6, mincnt=1)
 
-    ax.set_xlabel('X (m)', fontsize=12)
-    ax.set_ylabel('Y (m)', fontsize=12)
+    ax.set_xlabel('Pixel X', fontsize=12)
+    ax.set_ylabel('Pixel Y', fontsize=12)
     ax.set_title('Point Density Heatmap', fontsize=14, fontweight='bold')
-    ax.set_aspect('equal')
+    ax.set_xlim(0, map_img.shape[1])
+    ax.set_ylim(map_img.shape[0], 0)  # Invert y to match image
 
-    cbar2 = plt.colorbar(im, ax=ax)
+    cbar2 = plt.colorbar(hb, ax=ax)
     cbar2.set_label('Sample Density', fontsize=10)
 
     plt.tight_layout()
@@ -200,8 +203,8 @@ def plot_positions_only(x_positions, y_positions, theta_positions, max_points=No
 
 def main():
     # Configuration
-    data_file = 'example_map_360_100k.npz'  # Update path as needed
-    config_file = '../example_map.yaml'  # Update path as needed
+    data_file = 'Monza_100k.npz'  # Update path as needed
+    config_file = '../Monza/Monza_map.yaml'  # Update path as needed
     max_points = 10000  # Limit points for faster rendering
 
     visualize_data_on_map(data_file, config_file, max_points)
