@@ -4,18 +4,13 @@ with ground truth calibration data
 """
 
 import torch
+from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
-import os
+from data_collection.train_perception_map import PerceptionMap
 
-# Add data_collection directory to path to import PerceptionMap
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'data_collection'))
-from train_perception_map import PerceptionMap
-
-
-def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=1080,
-                      use_pos_encoding=True, dropout=0.0, device='cpu'):
+def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=256,
+                      use_pos_encoding=False, dropout=0.2, device='cpu'):
     """
     Load trained model and compute residuals on calibration dataset
 
@@ -50,8 +45,19 @@ def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=1
     if 'data_record' in data:
         # Concatenated format: [x, y, theta, lidar...]
         data_record = data['data_record'].astype(np.float32)
-        poses = data_record[60000:, :3]
-        lidar_scans = data_record[60000:, 3:]
+        poses = data_record[150000:, :3]
+        lidar_data = data_record[150000:, 3:]
+
+        # Check if data is downsampled (360 points) or full (1080 points)
+        if lidar_data.shape[1] == 360 and n_input == 1080:
+            # Data is downsampled but model expects full scan - need to upsample
+            # For now, repeat each point 3 times to match expected input size
+            lidar_scans = np.repeat(lidar_data, 3, axis=1)
+        elif lidar_data.shape[1] == 1080 and n_input == 360:
+            # Data is full but model expects downsampled - downsample it
+            lidar_scans = lidar_data[:, ::3]
+        else:
+            lidar_scans = lidar_data
     else:
         # Separate arrays format
         lidar_scans = data['lidar_scans'].astype(np.float32)
@@ -68,7 +74,11 @@ def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=1
 
     # Load trained weights
     print(f"\nLoading model from {model_path}...")
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    state_dict = torch.load(model_path, map_location=device)
+    # Handle torch.compile() prefix if present
+    if any(k.startswith('_orig_mod.') for k in state_dict.keys()):
+        state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
     model = model.to(device)
     model.eval()
     print("Model loaded successfully!")
@@ -243,16 +253,14 @@ def visualize_residual_distributions(R, error_bounds, conformal_band, output_pat
 def main():
     # Configuration - MUST match your training configuration!
     model_path = 'data_collection/perception_model.pth'
-    calibration_data_path = 'data_collection/example_map_360_100k.npz'
+    calibration_data_path = 'data_collection/Monza_100k.npz'
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Model architecture parameters - MUST match training!
-    # NOTE: You need to RETRAIN the model first with the new architecture!
-    # The saved model doesn't have positional encoding
-    n_input = 360  # Number of LiDAR points after downsampling
-    n_hidden = 1080  # New larger hidden layer
-    use_pos_encoding = True  # NEW: Positional encoding enabled
-    dropout = 0.0  # NEW: No dropout
+    # Model architecture parameters - MUST match the saved model!
+    n_input = 360  # Full LiDAR scan (model was trained on 1080 points, not 360)
+    n_hidden = 2048  # Hidden layer size used during training
+    use_pos_encoding = False  # No positional encoding in old model
+    dropout = 0.0  # Dropout used during training
 
     # Compute residuals and get predictions
     R, y_pred, y_true = compute_residuals(

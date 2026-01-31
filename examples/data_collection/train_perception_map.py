@@ -19,33 +19,24 @@ class PerceptionMap(nn.Module):
         # So input dimension = n_input * 3 instead of just n_input
         actual_input = n_input * 3 if use_pos_encoding else n_input
 
-        if dropout > 0:
-            self.nn = nn.Sequential(
-                nn.Linear(actual_input, n_hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(n_hidden, n_hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(n_hidden, n_hidden//2),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(n_hidden//2, n_output)
-            )
-        else:
-            self.nn = nn.Sequential(
-                nn.Linear(actual_input, n_hidden),
-                nn.ReLU(),
-                nn.Linear(n_hidden, n_hidden),
-                nn.ReLU(),
-                nn.Linear(n_hidden, n_hidden),
-                nn.ReLU(),
-                nn.Linear(n_hidden, n_hidden//2),
-                nn.ReLU(),
-                nn.Linear(n_hidden//2, n_hidden//4),
-                nn.ReLU(),
-                nn.Linear(n_hidden//4, n_output)
-            )
+        self.nn = nn.Sequential(
+            nn.Linear(actual_input, n_hidden),
+            nn.ReLU(),
+            # nn.Dropout(dropout),
+            nn.Linear(n_hidden, n_hidden),
+            nn.ReLU(),
+            # nn.Dropout(dropout),
+            nn.Linear(n_hidden, n_hidden//2),
+            nn.ReLU(),
+            # nn.Dropout(dropout),
+            nn.Linear(n_hidden//2, n_hidden//4),
+            nn.ReLU(),
+            nn.Linear(n_hidden//4, n_hidden//8),
+            nn.ReLU(),
+            # nn.Dropout(dropout),
+            nn.Linear(n_hidden//8, n_output)
+        )
+
 
     def add_positional_encoding(self, lidar_scans):
         """
@@ -202,15 +193,17 @@ def plot_training_history(train_losses, val_losses):
 def main():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("n_samples", help="display a subset from dataset for training",
-                    type=int)
-    
+    parser.add_argument("--n_samples", help="number of samples from dataset for training",
+                    type=int, default=60000)
+    parser.add_argument("--data", "-d", help="path to data file (.npz)",
+                    type=str, default='./Monza_100k.npz')
+
     args = parser.parse_args()
-    # print(args.n_samples)
+
     # Configuration
-    file_path = './example_map_360_100k.npz'
+    file_path = args.data
     batch_size = 32
-    epochs = 500
+    epochs = 100
     learning_rate = 1e-3
     test_size = 0.2
     val_size = 0.1
@@ -272,13 +265,15 @@ def main():
 
     # Initialize model
     n_input = lidar_scans.shape[1]  # 360
-    n_hidden = 1080
+    n_hidden = 2048
     n_output = poses.shape[1]  # 3
-    use_pos_encoding = True  # Add positional encoding for LiDAR beam angles
+    use_pos_encoding = False  # Add positional encoding for LiDAR beam angles
     dropout = 0.0  # Disable dropout since it's making loss worse
 
     model = PerceptionMap(n_input, n_hidden, n_output, use_pos_encoding=use_pos_encoding, dropout=dropout)
 
+    # torch compile
+    model = torch.compile(model)
     print(f"\nPositional encoding: {'ENABLED' if use_pos_encoding else 'DISABLED'}")
     print(f"Dropout: {dropout}")
 
