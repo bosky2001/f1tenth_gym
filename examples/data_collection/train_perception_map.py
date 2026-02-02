@@ -5,6 +5,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import argparse
+import wandb
 
 # Neural net to predict pose from lidar scan
 class PerceptionMap(nn.Module):
@@ -131,6 +132,13 @@ def train_model(model, train_loader, val_loader, epochs=500, learning_rate=1e-3,
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
 
+        # Log to wandb
+        wandb.log({
+            "train_loss": train_loss,
+            "val_loss": val_loss,
+            "epoch": epoch
+        })
+
         # Print progress
         if (epoch + 1) % 5 == 0 or epoch == 0:
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}")
@@ -202,7 +210,7 @@ def main():
     parser.add_argument("--n_samples", help="number of samples from dataset for training",
                     type=int, default=60000)
     parser.add_argument("--data", "-d", help="path to data file (.npz)",
-                    type=str, default='./Monza_200k.npz')
+                    type=str, default='./Monza_200k_wods.npz')
 
     args = parser.parse_args()
 
@@ -273,12 +281,30 @@ def main():
     n_input = lidar_scans.shape[1]  # 360
     n_hidden = 2048
     n_output = poses.shape[1]  # 3
-    use_pos_encoding = True  # Multi-frequency trigonometric positional encoding
+    use_pos_encoding = False  # Multi-frequency trigonometric positional encoding
     n_frequencies = 4  # Number of frequency bands (1, 2, 4, 8)
     dropout = 0.0
 
     model = PerceptionMap(n_input, n_hidden, n_output, use_pos_encoding=use_pos_encoding,
                           n_frequencies=n_frequencies, dropout=dropout)
+
+    # Initialize wandb
+    wandb.init(
+        project="f1tenth-perception",
+        config={
+            "n_input": n_input,
+            "n_hidden": n_hidden,
+            "n_output": n_output,
+            "use_pos_encoding": use_pos_encoding,
+            "n_frequencies": n_frequencies,
+            "dropout": dropout,
+            "batch_size": batch_size,
+            "epochs": epochs,
+            "learning_rate": learning_rate,
+            "n_samples": args.n_samples,
+            "data_file": file_path,
+        }
+    )
 
     # torch compile
     model = torch.compile(model)
@@ -306,10 +332,20 @@ def main():
     print("\nEvaluating on test set...")
     test_loss, predictions, targets = evaluate_model(model, test_loader, device)
 
+    # Log test metrics to wandb
+    wandb.log({"test_loss": test_loss})
+
     # Save model
+    model_path_pe = 'perception_model_pe.pth'
     model_path = 'perception_model.pth'
-    torch.save(model.state_dict(), model_path)
-    print(f"Model saved to {model_path}")
+
+    if use_pos_encoding:
+        torch.save(model.state_dict(), model_path_pe)
+        print(f"Model saved to {model_path_pe}")
+    
+    else:
+        torch.save(model.state_dict(), model_path)
+        print(f"Model saved to {model_path}")
 
     # Show some predictions
     print("\nSample predictions (first 5 test samples):")
@@ -324,6 +360,9 @@ def main():
     print(f"\n{'='*60}")
     print("Training complete!")
     print(f"{'='*60}\n")
+
+    # Finish wandb run
+    wandb.finish()
 
 
 if __name__ == '__main__':

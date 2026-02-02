@@ -193,7 +193,8 @@ def main():
             if not done:
                 # Record Cartesian pose and LiDAR scan
                 pose = np.array([obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]])
-                lidar_scan = np.array(obs['scans'][0])[np.arange(0, 1080, 3)]  # Downsample to 360
+                # lidar_scan = np.array(obs['scans'][0])[np.arange(0, 1080, 3)]  # Downsample to 360
+                lidar_scan = np.array(obs['scans'][0])  # no downsample
 
                 data_record.append(np.concatenate([pose, lidar_scan]))
 

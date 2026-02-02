@@ -16,3 +16,6 @@ flycheck_*
 *.png
 *.jpg
 *.jpeg
+
+# ignore wandb
+examples/data_collection/wandb

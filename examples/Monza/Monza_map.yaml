@@ -7,4 +7,4 @@ negate: 0
 occupied_thresh: 0.45
 free_thresh: 0.196
 sample_num: 200000
-save_filename: 'Monza_100k.npz'
+save_filename: 'Monza_200k_wods.npz'
