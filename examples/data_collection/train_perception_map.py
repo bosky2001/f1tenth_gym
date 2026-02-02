@@ -8,64 +8,70 @@ import argparse
 
 # Neural net to predict pose from lidar scan
 class PerceptionMap(nn.Module):
-    def __init__(self, n_input=1080, n_hidden=256, n_output=3, use_pos_encoding=True, dropout=0.0):
+    def __init__(self, n_input=1080, n_hidden=256, n_output=3, use_pos_encoding=True,
+                 n_frequencies=4, dropout=0.0):
         super(PerceptionMap, self).__init__()
 
         self.use_pos_encoding = use_pos_encoding
         self.n_lidar_points = n_input
+        self.n_frequencies = n_frequencies
+        self.n_scale = 1000
 
-        # If using positional encoding, we add sin/cos features for each beam angle
-        # Input becomes: [range_0, sin(angle_0), cos(angle_0), range_1, sin(angle_1), cos(angle_1), ...]
-        # So input dimension = n_input * 3 instead of just n_input
-        actual_input = n_input * 3 if use_pos_encoding else n_input
+        # Multi-frequency positional encoding:
+        # For each beam: [range, sin(angle*1), cos(angle*1), sin(angle*2), cos(angle*2), ...]
+        # Input dimension = n_input * (1 + 2 * n_frequencies)
+        if use_pos_encoding:
+            actual_input = n_input * (1 + 2 * n_frequencies)
+        else:
+            actual_input = n_input
 
         self.nn = nn.Sequential(
             nn.Linear(actual_input, n_hidden),
             nn.ReLU(),
-            # nn.Dropout(dropout),
             nn.Linear(n_hidden, n_hidden),
             nn.ReLU(),
-            # nn.Dropout(dropout),
             nn.Linear(n_hidden, n_hidden//2),
             nn.ReLU(),
-            # nn.Dropout(dropout),
             nn.Linear(n_hidden//2, n_hidden//4),
             nn.ReLU(),
             nn.Linear(n_hidden//4, n_hidden//8),
             nn.ReLU(),
-            # nn.Dropout(dropout),
             nn.Linear(n_hidden//8, n_output)
         )
 
 
     def add_positional_encoding(self, lidar_scans):
         """
-        Add positional encoding matching F1TENTH LiDAR scan angles
+        Transformer-style positional encoding for LiDAR beam angles.
 
-        F1TENTH specs:
-        - FOV: 4.7 radians (≈269°)
-        - Centered around vehicle forward direction
-        - Scans from -2.35 to +2.35 radians relative to forward
+        Formula: sin(pos / scale^(2i/d)), cos(pos / scale^(2i/d))
+        Where pos = beam angle, scale = 10000 (or self.n_scale), d = n_frequencies * 2
         """
         batch_size = lidar_scans.shape[0]
         n_points = lidar_scans.shape[1]
 
         # F1TENTH LiDAR field of view
         fov = 4.7  # radians
-        start_angle = -fov / 2  # -2.35 rad
-        end_angle = fov / 2      # +2.35 rad
+        start_angle = -fov / 2
+        end_angle = fov / 2
 
-        # Create angle features matching actual LiDAR scan angles
+        # Create base angles for each beam (these are our "positions")
         angles = torch.linspace(start_angle, end_angle, n_points)
         angles = angles.to(lidar_scans.device).unsqueeze(0).repeat(batch_size, 1)
 
-        # Create sin and cos features
-        sin_angles = torch.sin(angles)
-        cos_angles = torch.cos(angles)
+        # Transformer-style encoding: pos / scale^(2i/d)
+        d = self.n_frequencies * 2  # total encoding dimensions
+        features = [lidar_scans]
 
-        # Stack: [range_0, sin_0, cos_0, range_1, sin_1, cos_1, ...]
-        encoded = torch.stack([lidar_scans, sin_angles, cos_angles], dim=2)  # (batch, n_points, 3)
-        encoded = encoded.reshape(batch_size, -1)  # (batch, n_points * 3)
+        for i in range(self.n_frequencies):
+            # scale^(2i/d) creates wavelengths from 1 to scale
+            div_term = self.n_scale ** (2 * i / d)
+            features.append(torch.sin(angles / div_term))
+            features.append(torch.cos(angles / div_term))
+
+        # Stack: (batch, n_points, 1 + 2*n_frequencies)
+        encoded = torch.stack(features, dim=2)
+        encoded = encoded.reshape(batch_size, -1)
 
         return encoded
 
@@ -196,7 +202,7 @@ def main():
     parser.add_argument("--n_samples", help="number of samples from dataset for training",
                     type=int, default=60000)
     parser.add_argument("--data", "-d", help="path to data file (.npz)",
-                    type=str, default='./Monza_100k.npz')
+                    type=str, default='./Monza_200k.npz')
 
     args = parser.parse_args()
 
@@ -267,15 +273,18 @@ def main():
     n_input = lidar_scans.shape[1]  # 360
     n_hidden = 2048
     n_output = poses.shape[1]  # 3
-    use_pos_encoding = False  # Add positional encoding for LiDAR beam angles
-    dropout = 0.0  # Disable dropout since it's making loss worse
+    use_pos_encoding = True  # Multi-frequency trigonometric positional encoding
+    n_frequencies = 4  # Number of frequency bands (1, 2, 4, 8)
+    dropout = 0.0
 
-    model = PerceptionMap(n_input, n_hidden, n_output, use_pos_encoding=use_pos_encoding, dropout=dropout)
+    model = PerceptionMap(n_input, n_hidden, n_output, use_pos_encoding=use_pos_encoding,
+                          n_frequencies=n_frequencies, dropout=dropout)
 
     # torch compile
     model = torch.compile(model)
     print(f"\nPositional encoding: {'ENABLED' if use_pos_encoding else 'DISABLED'}")
-    print(f"Dropout: {dropout}")
+    if use_pos_encoding:
+        print(f"Frequencies: {n_frequencies} bands (1, 2, 4, ... {2**(n_frequencies-1)})")
 
     print(f"\nModel architecture:")
     print(model)

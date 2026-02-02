@@ -159,8 +159,8 @@ def main():
     s_max = total_track_length
     d_min = -1.0   # 1 meter right of centerline
     d_max = 1.0    # 1 meter left of centerline
-    theta_error_min = -1*np.pi         # Full rotation range
-    theta_error_max = 1 * np.pi    # 0 to 360 degrees
+    theta_error_min = -1*np.pi/4         # Full rotation range
+    theta_error_max = 1 * np.pi/4    # 0 to 360 degrees
 
     print(f"\nFrenet sampling bounds:")
     print(f"  s: [{s_min:.1f}, {s_max:.1f}] m")

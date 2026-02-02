@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from data_collection.train_perception_map import PerceptionMap
 
 def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=256,
-                      use_pos_encoding=False, dropout=0.2, device='cpu'):
+                      use_pos_encoding=True, n_frequencies=4, dropout=0.0, device='cpu'):
     """
     Load trained model and compute residuals on calibration dataset
 
@@ -70,7 +70,8 @@ def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=2
     # Initialize model with same architecture as training
     n_output = poses.shape[1]  # 3
     model = PerceptionMap(n_input, n_hidden, n_output,
-                         use_pos_encoding=use_pos_encoding, dropout=dropout)
+                         use_pos_encoding=use_pos_encoding, n_frequencies=n_frequencies,
+                         dropout=dropout)
 
     # Load trained weights
     print(f"\nLoading model from {model_path}...")
@@ -257,10 +258,11 @@ def main():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Model architecture parameters - MUST match the saved model!
-    n_input = 360  # Full LiDAR scan (model was trained on 1080 points, not 360)
+    n_input = 360  # Downsampled LiDAR scan
     n_hidden = 2048  # Hidden layer size used during training
-    use_pos_encoding = False  # No positional encoding in old model
-    dropout = 0.0  # Dropout used during training
+    use_pos_encoding = True  # Multi-frequency positional encoding
+    n_frequencies = 4  # Frequency bands (1, 2, 4, 8)
+    dropout = 0.0
 
     # Compute residuals and get predictions
     R, y_pred, y_true = compute_residuals(
@@ -268,6 +270,7 @@ def main():
         n_input=n_input,
         n_hidden=n_hidden,
         use_pos_encoding=use_pos_encoding,
+        n_frequencies=n_frequencies,
         dropout=dropout,
         device=device
     )
