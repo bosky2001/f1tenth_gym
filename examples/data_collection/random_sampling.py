@@ -120,6 +120,7 @@ def compute_cumulative_lengths(trajectory):
 def main():
     """
     Sample positions in Frenet frame, convert to Cartesian, and collect LiDAR observations.
+    Stores both Frenet and Cartesian coordinates for experimentation
 
     Frenet sampling allows us to:
     1. Sample uniformly along the track (s coordinate)
@@ -130,7 +131,6 @@ def main():
     with open('../Monza/Monza_map.yaml') as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
-
 
     # Load waypoints for Frenet conversion
     waypoint_path = conf.wpt_path if hasattr(conf, 'wpt_path') else '../Monza/Monza_centerline.csv'
@@ -168,13 +168,16 @@ def main():
     print(f"  theta_error: [{np.rad2deg(theta_error_min):.1f}, {np.rad2deg(theta_error_max):.1f}] deg")
 
     # Initialize environment
-    env = gym.make('f110_gym:f110-v0', map=conf.map_path, map_ext=conf.map_ext, num_agents=1)
+    env = gym.make('f110_gym:f110-v0', map=conf.map_path, map_ext=conf.map_ext, num_agents=1, disable_env_checker=True,)
 
     start = time.time()
     cnt = 0
-    data_record = []
 
-    with tqdm(total=conf.sample_num) as pbar:
+    frenet_coords = []      # [s, d, theta_error]
+    cartesian_poses = []    # [x, y, theta]
+    lidar_scans = []        # LiDAR data
+
+    with tqdm(total=conf.sample_num, desc="Collecting data") as pbar:
         while cnt < conf.sample_num:
             # Sample in Frenet frame
             s = np.random.uniform(s_min, s_max)
@@ -187,30 +190,70 @@ def main():
             sample_pos = [x, y, theta]
 
             # Reset environment at sampled position
-            obs, step_reward, done, info = env.reset(np.array([sample_pos]))
+            obs, step_reward, done, info = env.reset(poses=np.array([sample_pos]))
 
             # Check if position is valid (not in collision)
             if not done:
-                # Record Cartesian pose and LiDAR scan
-                pose = np.array([obs['poses_x'][0], obs['poses_y'][0], obs['poses_theta'][0]])
-                # lidar_scan = np.array(obs['scans'][0])[np.arange(0, 1080, 3)]  # Downsample to 360
-                lidar_scan = np.array(obs['scans'][0])  # no downsample
-
-                data_record.append(np.concatenate([pose, lidar_scan]))
+                # Get actual pose from simulator (may differ slightly due to discretization)
+                actual_x = obs['poses_x'][0]
+                actual_y = obs['poses_y'][0]
+                actual_theta = obs['poses_theta'][0]
+                
+                # Get LiDAR scan
+                lidar_scan = np.array(obs['scans'][0])  # Full resolution (1080), no downsample
+                
+                # Store both coordinate systems
+                frenet_coords.append([s, d, theta_error])
+                cartesian_poses.append([actual_x, actual_y, actual_theta])
+                lidar_scans.append(lidar_scan)
 
                 cnt += 1
                 pbar.update(1)
 
-    data_record = np.array(data_record)
+    frenet_coords = np.array(frenet_coords, dtype=np.float32)
+    cartesian_poses = np.array(cartesian_poses, dtype=np.float32)
+    lidar_scans = np.array(lidar_scans, dtype=np.float32)
 
-    print(f"\nData shape: {data_record.shape}")
+    print(f"\nData collection summary:")
+    print(f"  Frenet coordinates shape: {frenet_coords.shape}")
+    print(f"  Cartesian poses shape: {cartesian_poses.shape}")
+    print(f"  LiDAR scans shape: {lidar_scans.shape}")
+    print(f"\nFrenet coordinate statistics:")
+    print(f"  s range: [{frenet_coords[:, 0].min():.2f}, {frenet_coords[:, 0].max():.2f}] m")
+    print(f"  d range: [{frenet_coords[:, 1].min():.2f}, {frenet_coords[:, 1].max():.2f}] m")
+    print(f"  theta_error range: [{np.rad2deg(frenet_coords[:, 2].min()):.2f}, {np.rad2deg(frenet_coords[:, 2].max()):.2f}]°")
 
-    # Save data
+    # Save data with multiple representations
+    save_path = conf.save_filename
     np.savez_compressed(
-        conf.save_filename,
-        data_record=data_record,
+        save_path,
+        # LiDAR observations
+        scans=lidar_scans,
+        
+        # Frenet frame labels 
+        frenet_labels=frenet_coords,      # [s, d, theta_error]
+        
+        # Cartesian frame labels (for absolute localization)
+        cartesian_labels=cartesian_poses,  # [x, y, theta]
+        
+        # Prev format -> so that train_perception_map.py continues to work
+        data_record=np.concatenate([cartesian_poses, lidar_scans], axis=1),
+        
+        # Track metadata
+        track_length=np.array([total_track_length], dtype=np.float32),
+        trajectory=trajectory.astype(np.float32),
+        cumulative_lengths=cumulative_lengths.astype(np.float32),
+        psi_rad=psi_rad.astype(np.float32)
     )
-    print(f"Saved to {conf.save_filename}")
+
+    print(f"\nSaved to {save_path}")
+    print(f"File contents:")
+    print(f"  - scans: LiDAR observations ({lidar_scans.shape})")
+    print(f"  - frenet_labels: [s, d, theta_error] ({frenet_coords.shape})")
+    print(f"  - cartesian_labels: [x, y, theta] ({cartesian_poses.shape})")
+    print(f"  - data_record: prev commit format (cartesian + scans)")
+    print(f"  - track_length: scalar ({total_track_length:.2f} m)")
+    print(f"  - trajectory, cumulative_lengths, psi_rad: for conversions")
 
     print(f'Real elapsed time: {time.time()-start:.2f}s')
 
