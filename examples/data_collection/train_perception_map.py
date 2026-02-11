@@ -94,12 +94,12 @@ def train_model(model, train_loader, val_loader, epochs=500, learning_rate=1e-3,
     model = model.to(device)
     print(model.parameters())
     loss_fn = nn.MSELoss()
-    # optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate, eps = 1e-10)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, eps=1e-10)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     train_losses = []
     val_losses = []
-    
+
     for epoch in range(epochs):
 
         # training loop
@@ -138,10 +138,14 @@ def train_model(model, train_loader, val_loader, epochs=500, learning_rate=1e-3,
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
 
+        # Step the LR scheduler
+        scheduler.step()
+
         # Log to wandb
         wandb.log({
             "train_loss": train_loss,
             "val_loss": val_loss,
+            "lr": scheduler.get_last_lr()[0],
             "epoch": epoch
         })
 
@@ -223,7 +227,7 @@ def main():
     # Configuration
     file_path = args.data
     batch_size = 32
-    epochs = 100
+    epochs = 1000
     learning_rate = 1e-3
     test_size = 0.2
     val_size = 0.1
@@ -244,6 +248,12 @@ def main():
     print(data_record.shape)
     poses = data_record[:args.n_samples, :3]
     lidar_scans = data_record[:args.n_samples, 3:]
+
+    # Downsample LiDAR from 1080 to 360 (pick every 3rd reading)
+    lidar_scans = lidar_scans[:, ::3]
+
+    # Normalize LiDAR scans by max range (30m)
+    lidar_scans = lidar_scans / 30.0
 
     test_scans = np.hstack((lidar_scans, poses))
     print(f"Loaded {lidar_scans.shape[0]} samples")
@@ -292,7 +302,8 @@ def main():
     # Initialize model
     n_input = lidar_scans.shape[1]  
     # n_input = test_scans.shape[1]  
-    n_hidden = 2048
+    # n_hidden = 
+    n_hidden = 720
     n_output = poses.shape[1]  # 3
     use_pos_encoding = False  # Multi-frequency trigonometric positional encoding
     n_frequencies = 4  # Number of frequency bands (1, 2, 4, 8)
