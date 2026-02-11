@@ -39,7 +39,13 @@ class PerceptionMap(nn.Module):
             nn.ReLU(),
             nn.Linear(n_hidden//8, n_output)
         )
+        # init bias to 0
+        self.init_bias(self.nn)
 
+
+    def init_bias(self, m):
+        if isinstance(m, nn.Linear):
+            m.bias.data.fill_(0.0)
 
     def add_positional_encoding(self, lidar_scans):
         """
@@ -208,7 +214,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_samples", help="number of samples from dataset for training",
-                    type=int, default=60000)
+                    type=int, default=150000)
     parser.add_argument("--data", "-d", help="path to data file (.npz)",
                     type=str, default='./Monza_200k_wods.npz')
 
@@ -239,15 +245,21 @@ def main():
     poses = data_record[:args.n_samples, :3]
     lidar_scans = data_record[:args.n_samples, 3:]
 
+    test_scans = np.hstack((lidar_scans, poses))
     print(f"Loaded {lidar_scans.shape[0]} samples")
     print(f"LiDAR shape: {lidar_scans.shape}")
     print(f"Poses shape: {poses.shape}")
 
+    print(f"test scans shape: {test_scans.shape}")
     # Split into train/val/test
     # First split: train+val vs test
     X_trainval, X_test, y_trainval, y_test = train_test_split(
         lidar_scans, poses, test_size=test_size, random_state=42
     )
+    # testing
+    # X_trainval, X_test, y_trainval, y_test = train_test_split(
+    #     test_scans, poses, test_size=test_size, random_state=42
+    # )
 
     # Second split: train vs val
     X_train, X_val, y_train, y_val = train_test_split(
@@ -278,7 +290,8 @@ def main():
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize model
-    n_input = lidar_scans.shape[1]  # 360
+    n_input = lidar_scans.shape[1]  
+    # n_input = test_scans.shape[1]  
     n_hidden = 2048
     n_output = poses.shape[1]  # 3
     use_pos_encoding = False  # Multi-frequency trigonometric positional encoding
@@ -291,6 +304,7 @@ def main():
     # Initialize wandb
     wandb.init(
         project="f1tenth-perception",
+        name="Levine map",
         config={
             "n_input": n_input,
             "n_hidden": n_hidden,

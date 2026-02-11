@@ -85,14 +85,13 @@ def frenet_to_cartesian(s, d, theta_error, trajectory, cumulative_lengths, psi_r
     return x, y, theta
 
 
-def load_waypoints(waypoint_path):
+def load_waypoints(waypoint_path, delimiter=';', skiprows=3):
     """
     Load waypoints from CSV file.
 
     Expected format: s_m; x_m; y_m; psi_rad; kappa_radpm; vx_mps; ax_mps2
     """
-    # waypoints = np.loadtxt(waypoint_path, delimiter=';', skiprows=3)
-    waypoints = np.loadtxt(waypoint_path, delimiter=',', skiprows=1)
+    waypoints = np.loadtxt(waypoint_path, delimiter=delimiter, skiprows=skiprows)
     return waypoints
 
 
@@ -127,29 +126,26 @@ def main():
     3. Sample heading variations relative to track direction (theta_error)
     """
 
-    with open('../Monza/Monza_map.yaml') as file:
+    with open('../Levine/levine_slam.yaml') as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
 
+    # Add required fields not in yaml
+    conf.map_path = '../Levine/levine_slam'
+    conf.map_ext = '.pgm'
+    conf.sample_num = 200000
+    conf.save_filename = 'Levine_200k.npz'
 
     # Load waypoints for Frenet conversion
-    waypoint_path = conf.wpt_path if hasattr(conf, 'wpt_path') else '../Monza/Monza_centerline.csv'
-    waypoints = load_waypoints(waypoint_path)
+    # Levine format: s_m; x_m; y_m; psi_rad; kappa; vx; ax
+    waypoint_path = '../Levine/levine_centerline.csv'
+    waypoints = load_waypoints(waypoint_path, delimiter=';', skiprows=3)
 
     # Extract trajectory data
-    # Centerline format: [x, y, w_tr_right, w_tr_left]
-    trajectory = waypoints[:, 0:2].astype(np.float64)  # x, y
-
-    # Compute cumulative arc lengths from trajectory
-    cumulative_lengths = compute_cumulative_lengths(trajectory)
+    trajectory = waypoints[:, 1:3].astype(np.float64)  # x, y (columns 1, 2)
+    cumulative_lengths = waypoints[:, 0].astype(np.float64)  # s (column 0)
     total_track_length = cumulative_lengths[-1]
-
-    # Compute heading (psi) from trajectory direction
-    diffs = trajectory[1:] - trajectory[:-1]
-    psi_rad = np.zeros(len(trajectory))
-    psi_rad[:-1] = np.arctan2(diffs[:, 1], diffs[:, 0])
-    psi_rad[-1] = psi_rad[-2]  # Last point same as second-to-last
-    psi_rad = psi_rad.astype(np.float64)
+    psi_rad = waypoints[:, 3].astype(np.float64)  # psi (column 3)
 
     print(f"Track length: {total_track_length:.2f} m")
     print(f"Number of waypoints: {len(trajectory)}")
@@ -157,8 +153,8 @@ def main():
     # Frenet sampling parameters
     s_min = 0.0
     s_max = total_track_length
-    d_min = -1.0   # 1 meter right of centerline
-    d_max = 1.0    # 1 meter left of centerline
+    d_min = -0.7   # 1 meter right of centerline
+    d_max = 0.7    # 1 meter left of centerline
     theta_error_min = -1*np.pi/4         # Full rotation range
     theta_error_max = 1 * np.pi/4    # 0 to 360 degrees
 
@@ -220,37 +216,32 @@ def debug_visualization():
     import matplotlib.pyplot as plt
     from PIL import Image
 
-    with open('../Monza/Monza_map.yaml') as file:
+    with open('../Levine/levine_slam.yaml') as file:
         conf_dict = yaml.load(file, Loader=yaml.FullLoader)
     conf = Namespace(**conf_dict)
 
-    # Load centerline
-    waypoint_path = '../Monza/Monza_centerline.csv'
-    waypoints = load_waypoints(waypoint_path)
-    trajectory = waypoints[:, 0:2].astype(np.float64)
-    cumulative_lengths = compute_cumulative_lengths(trajectory)
+    # Load centerline (Levine format: s; x; y; psi; ...)
+    waypoint_path = '../Levine/levine_centerline.csv'
+    waypoints = load_waypoints(waypoint_path, delimiter=';', skiprows=3)
+    trajectory = waypoints[:, 1:3].astype(np.float64)  # x, y
+    cumulative_lengths = waypoints[:, 0].astype(np.float64)  # s
     total_track_length = cumulative_lengths[-1]
-
-    # Compute heading
-    diffs = trajectory[1:] - trajectory[:-1]
-    psi_rad = np.zeros(len(trajectory))
-    psi_rad[:-1] = np.arctan2(diffs[:, 1], diffs[:, 0])
-    psi_rad[-1] = psi_rad[-2]
-    psi_rad = psi_rad.astype(np.float64)
+    psi_rad = waypoints[:, 3].astype(np.float64)  # psi
 
     # Load map
-    map_img = Image.open('../Monza/Monza_map.png')
+    map_img = Image.open('../Levine/levine_slam.pgm')
     map_array = np.array(map_img)
 
     # Map params
     resolution = conf.resolution
     origin_x, origin_y = conf.origin[0], conf.origin[1]
     img_height = map_array.shape[0]
-
+    d_min = -0.8
+    d_max = 0.8
     # Sample points along centerline (d=0) and with offsets
     sampled_points = []
     for s in np.linspace(0, total_track_length * 0.99, 50):
-        for d in [-1.0, 0.0, 1.0]:
+        for d in [d_min, 0.0, d_max]:
             x, y, theta = frenet_to_cartesian(s, d, 0.0, trajectory, cumulative_lengths, psi_rad)
             sampled_points.append([x, y, d])
 
@@ -271,8 +262,8 @@ def debug_visualization():
     ax.plot(cl_px, cl_py, 'g-', linewidth=2, label='Centerline (from file)', alpha=0.7)
 
     # Plot sampled points
-    colors = {-1.0: 'blue', 0.0: 'red', 1.0: 'cyan'}
-    for d_val in [-1.0, 0.0, 1.0]:
+    colors = {d_min: 'blue', 0.0: 'red', d_max: 'cyan'}
+    for d_val in [d_min, 0.0, d_max]:
         mask = sampled_points[:, 2] == d_val
         pts = sampled_points[mask]
         px, py = world_to_pixel(pts[:, 0], pts[:, 1])
