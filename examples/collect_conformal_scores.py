@@ -84,6 +84,9 @@ def compute_residuals(model_path, calibration_data_path, n_input=360, n_hidden=2
     model.eval()
     print("Model loaded successfully!")
 
+    # Normalize LiDAR scans by max range (30m)
+    lidar_scans = lidar_scans / 30.0
+
     # Convert data to PyTorch tensors
     X = torch.from_numpy(lidar_scans).to(device)
     y_true = torch.from_numpy(poses).to(device)
@@ -253,14 +256,14 @@ def visualize_residual_distributions(R, error_bounds, conformal_band, output_pat
 
 def main():
     # Configuration - MUST match your training configuration!
-    model_path = 'data_collection/perception_model.pth'
-    calibration_data_path = 'data_collection/Monza_100k.npz'
+    model_path = 'data_collection/perception_model_levine.pth'
+    calibration_data_path = 'data_collection/Levine_200k.npz'
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Model architecture parameters - MUST match the saved model!
     n_input = 360  # Downsampled LiDAR scan
-    n_hidden = 2048  # Hidden layer size used during training
-    use_pos_encoding = True  # Multi-frequency positional encoding
+    n_hidden = 720  # Hidden layer size used during training
+    use_pos_encoding = False  # Multi-frequency positional encoding
     n_frequencies = 4  # Frequency bands (1, 2, 4, 8)
     dropout = 0.0
 
@@ -278,7 +281,7 @@ def main():
     print("Conformal score collection complete!")
 
     # Compute conformal error bounds
-    conformal_band = 0.5
+    conformal_band = 0.1
     error_bounds = np.quantile(R, conformal_band, axis=0)
 
     print(f"\n{'='*60}")
@@ -290,9 +293,9 @@ def main():
     print(f"{'='*60}\n")
 
     # Create visualizations
-    print("Creating visualizations...")
-    visualize_conformal_predictions(y_true, y_pred, error_bounds, conformal_band,
-                                   output_prefix='conformal_predictions')
+    # print("Creating visualizations...")
+    # visualize_conformal_predictions(y_true, y_pred, error_bounds, conformal_band,
+    #                                output_prefix='conformal_predictions')
 
     print("\nAll visualizations complete!")
 

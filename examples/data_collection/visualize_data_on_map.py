@@ -11,7 +11,7 @@ from argparse import Namespace
 
 def load_map_image(map_path, map_ext):
     """Load the map image"""
-    if map_ext == '.png':
+    if map_ext in ['.png', '.pgm']:
         img = mpimg.imread(map_path + map_ext)
     else:
         print(f"Map extension {map_ext} not supported for visualization")
@@ -54,20 +54,30 @@ def visualize_data_on_map(data_file, config_file, max_points=None):
     print(f"X: min={x_positions.min():.2f}, max={x_positions.max():.2f}")
     print(f"Y: min={y_positions.min():.2f}, max={y_positions.max():.2f}")
 
+    # Derive map path from yaml 'image' field or 'map_path'/'map_ext' fields
+    if hasattr(conf, 'map_path') and hasattr(conf, 'map_ext'):
+        map_full_path = conf.map_path
+        map_ext = conf.map_ext
+    else:
+        # Levine-style yaml: has 'image' field with filename
+        import os
+        config_dir = os.path.dirname(config_file)
+        map_filename = conf.image  # e.g. 'levine_slam.pgm'
+        map_ext = os.path.splitext(map_filename)[1]
+        map_full_path = os.path.join(config_dir, os.path.splitext(map_filename)[0])
+
     # Load map image
-    print(f"\nLoading map from {conf.map_path}{conf.map_ext}...")
-    map_img = load_map_image(conf.map_path, conf.map_ext)
+    print(f"\nLoading map from {map_full_path}{map_ext}...")
+    map_img = load_map_image(map_full_path, map_ext)
 
     if map_img is None:
         print("Could not load map image, showing positions only")
         plot_positions_only(x_positions, y_positions, theta_positions, max_points)
         return
 
-    # Get map metadata from YAML
-    map_yaml_path = conf.map_path + '.yaml'
+    # Get map metadata from YAML (already loaded as conf)
     try:
-        with open(map_yaml_path) as f:
-            map_metadata = yaml.safe_load(f)
+        map_metadata = conf_dict
 
         resolution = map_metadata['resolution']
         origin = map_metadata['origin']
@@ -203,8 +213,8 @@ def plot_positions_only(x_positions, y_positions, theta_positions, max_points=No
 
 def main():
     # Configuration
-    data_file = 'Monza_100k.npz'  # Update path as needed
-    config_file = '../Monza/Monza_map.yaml'  # Update path as needed
+    data_file = 'Levine_200k.npz'
+    config_file = '../Levine/levine_slam.yaml'
     max_points = 10000  # Limit points for faster rendering
 
     visualize_data_on_map(data_file, config_file, max_points)

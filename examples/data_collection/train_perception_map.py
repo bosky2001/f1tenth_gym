@@ -220,7 +220,7 @@ def main():
     parser.add_argument("--n_samples", help="number of samples from dataset for training",
                     type=int, default=150000)
     parser.add_argument("--data", "-d", help="path to data file (.npz)",
-                    type=str, default='./Monza_200k_wods.npz')
+                    type=str, default='./Levine_200k.npz')
 
     args = parser.parse_args()
 
